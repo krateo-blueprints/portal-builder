@@ -1,14 +1,14 @@
 apiVersion: v2
 
 # THE CHART NAME BECOMES THE API. core-provider derives the generated CRD's Kind by pascalizing
-# this (`portal-pages` -> `PortalPages`, plural `portalpages`), and the chart VERSION becomes the
+# this (`portal-builder` -> `PortalBuilder`, plural `portalpages`), and the chart VERSION becomes the
 # served apiVersion (`1.2.0` -> `composition.krateo.io/v1-2-0`). So renaming the chart renames the
 # Kind people install, and every release mints a new GVK with its own controller Deployment —
 # which is why a page-set chart is versioned deliberately rather than bumped per page edit.
 #
 # Rename this (and the directory) to something that names the SECTION of the portal it carries,
-# the way `portal-agents` does. `portal-pages` is a placeholder, not a recommendation.
-name: portal-pages
+# the way `portal-agents` does. `portal-builder` is this template's own name — rename it.
+name: portal-builder
 
 description: >-
   A set of Krateo Composable Portal pages, shipped as its own chart. Pages declare their own

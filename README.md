@@ -20,8 +20,8 @@ choice for a genuinely separate section.
 
 | | |
 |---|---|
-| `helm/portal-pages/` | rename the directory to name your section |
-| `Chart.yaml` `name:` | **becomes the CRD Kind** — `portal-pages` → `PortalPages`, plural `portalpages` |
+| `helm/portal-builder/` | rename the directory to name your section |
+| `Chart.yaml` `name:` | **becomes the CRD Kind** — `portal-builder` → `PortalPages`, plural `portalpages` |
 | `templates/flex.page-example.yaml` | your page root. The name must be `page-<slug>` exactly |
 | `templates/pageheader.example.yaml` | your page header, or delete it |
 | `values.schema.json` | **is** the generated CRD's `spec` — no schema, no CRD, not installable |
@@ -78,7 +78,7 @@ Two rules the CRDs enforce and nothing defaults, both of which fail quietly rath
 `helm template` refuses the `CHART_VERSION` placeholder, so pass a version:
 
 ```bash
-helm template example helm/portal-pages --namespace krateo-system --version 0.1.0
+helm template example helm/portal-builder --namespace krateo-system --version 0.1.0
 ```
 
 ## Checking your pages
@@ -86,8 +86,8 @@ helm template example helm/portal-pages --namespace krateo-system --version 0.1.
 The widget composition rules run from `krateo-platformops/frontend`:
 
 ```bash
-helm template example helm/portal-pages --namespace krateo-system --output-dir /tmp/r
-python3 path/to/frontend/design/lint/lint-portal-consistency.py /tmp/r/portal-pages/templates
+helm template example helm/portal-builder --namespace krateo-system --output-dir /tmp/r
+python3 path/to/frontend/design/lint/lint-portal-consistency.py /tmp/r/portal-builder/templates
 ```
 
 `P0 (page-discovery-alive)` firing means no page root carries `krateo.io/nav-label` or
