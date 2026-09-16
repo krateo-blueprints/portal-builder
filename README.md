@@ -3,8 +3,28 @@
 A starting point for a **Krateo Composable Portal page set** — one or more portal pages shipped as
 their own Helm chart, installed like any other Krateo composition.
 
-Scaffold a new repository from this one (the Portal Builder does it for you via the publish form's
-*Scaffold from* field), rename the chart, replace the example page, tag a release.
+Create a repository from this one ("Use this template"), rename the chart, replace the example
+page, tag a release.
+
+There are two ways a page set gets authored, and they produce different repositories:
+
+| | **Hand-authored** (this template) | **Composed in the Portal Builder** |
+|---|---|---|
+| repo | you create it from this template | the `BuilderPublish` claim creates it, empty |
+| chart | `helm/<your-name>/` | the repo root — the repo *is* the chart |
+| `compositiondefinition.yaml` | scaffolded here | **not emitted — you add it** |
+| release workflow | scaffolded here | **not emitted — you add it** |
+
+The composer writes the chart and nothing else. `builder-publish` creates the destination
+repository for it (`repository.create`, default true) and auto-inits it, so what you get is an empty
+repo with a chart in it — no release workflow, no `compositiondefinition.yaml`, and therefore no way
+to release or register itself. Copy both out of this template, and point the CompositionDefinition's
+`url` at the page set's own chart name.
+
+`builder-publish` *can* seed a destination from a template repo — `source.url` renders a
+git-provider `Repo` (`fromRepo` → `toRepo`) that copies this repository in before the held files are
+committed, which would make the two columns above converge. The Portal Builder does not set it
+today; the composer publishes into a bare repo.
 
 ## Why a page set, and not one chart per page
 
