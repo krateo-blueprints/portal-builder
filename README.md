@@ -25,6 +25,7 @@ choice for a genuinely separate section.
 | `templates/flex.page-example.yaml` | your page root. The name must be `page-<slug>` exactly |
 | `templates/pageheader.example.yaml` | your page header, or delete it |
 | `values.schema.json` | **is** the generated CRD's `spec` — no schema, no CRD, not installable |
+| `compositiondefinition.yaml` | the `name`, `namespace` and chart `url` |
 
 Leave `version: CHART_VERSION` alone: the release workflow substitutes it from the git tag.
 
@@ -55,12 +56,22 @@ Two rules the CRDs enforce and nothing defaults, both of which fail quietly rath
 1. **Publish** — commit the chart. The Portal Builder does this through a `BuilderPublish` claim,
    which creates the repository if it does not exist (existing ones are adopted, not re-created)
    and opens a change request.
-2. **Release** — tag `X.Y.Z`. `.github/workflows/release-oci.yaml` calls the org-wide reusable
-   workflow, which substitutes `CHART_VERSION` and pushes to
-   `oci://ghcr.io/krateo-platformops/charts/<chart name>`.
-3. **Register** — in the portal, install it the way a blueprint is installed: the form creates a
-   `CompositionDefinition` pointing at the chart URL and version. core-provider generates the CRD
-   from `values.schema.json`; a claim of that Kind installs the pages.
+2. **Release** — tag `X.Y.Z`. `.github/workflows/release-tag.yaml` discovers every `Chart.yaml`,
+   substitutes `CHART_VERSION`, and pushes each chart to
+   `oci://ghcr.io/<owner>/charts/<chart name>:<tag>`. It also stamps `compositiondefinition.yaml`
+   with the tag and **attaches it to the GitHub release**.
+3. **Register** — apply the stamped `CompositionDefinition` from the release:
+
+   ```bash
+   kubectl apply -f https://github.com/<owner>/<repo>/releases/download/<tag>/compositiondefinition.yaml
+   ```
+
+   Apply the copy from the **release**, not from the branch — the branch still carries the
+   `CHART_VERSION` placeholder, and registering that gets you a chart version that does not exist.
+
+4. **Install** — create a claim of the generated Kind. core-provider generates the CRD from
+   `values.schema.json`; the claim's Helm release is what puts the pages on the cluster, and
+   deleting the claim removes them.
 
 ## Rendering locally
 

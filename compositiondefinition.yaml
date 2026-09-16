@@ -1,0 +1,22 @@
+# REGISTERS this page set as installable. core-provider reads the chart, generates a CRD from its
+# values.schema.json, and serves it as composition.krateo.io/v<version>/<plural> — after which a
+# claim of that Kind installs the pages, and deleting the claim removes them.
+#
+# CHART_VERSION is stamped by .github/workflows/release-tag.yaml and the stamped copy is attached
+# to the GitHub release, because THIS FILE IS APPLIED BY HAND and is not inside the packaged chart.
+# Fetch it from the release rather than this branch, or you will register a literal placeholder.
+#
+#   kubectl apply -f compositiondefinition.yaml
+#
+# INSTALL IT WHERE THE PORTAL IS. The pages must land in namespaces the portal's own RBAC covers —
+# see values.yaml `tiers` — so this conventionally goes in the portal's release namespace.
+apiVersion: core.krateo.io/v1alpha1
+kind: CompositionDefinition
+metadata:
+  name: portal-pages
+  namespace: krateo-system
+spec:
+  chart:
+    # oci://ghcr.io/<owner>/charts/<chart name> — what release-tag.yaml pushes to.
+    url: oci://ghcr.io/krateo-blueprints/charts/portal-pages
+    version: CHART_VERSION

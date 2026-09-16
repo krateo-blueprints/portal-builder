@@ -1,0 +1,101 @@
+# Packages every chart in this repo and publishes each to the GitHub Container Registry as an OCI
+# Helm artifact on every semver tag. Shape-agnostic: it discovers charts by locating each Chart.yaml
+# (skipping vendored subcharts under charts/), so it works regardless of the repo's directory layout.
+#
+# Charts opt into versioning with the CHART_VERSION placeholder in Chart.yaml, which the git tag
+# replaces at publish time. Pushing tag "0.1.0" publishes each chart <name> as:
+#   oci://ghcr.io/<owner>/charts/<name>:0.1.0
+name: release-tag
+
+on:
+  push:
+    tags: ["[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  # contents: write so the stamped CompositionDefinition can be attached to the release.
+  # Stamping it in the runner alone achieves nothing -- the file is applied by hand, is not
+  # inside the packaged chart, and CI does not commit back, so the stamped copy has to be
+  # published somewhere a consumer can actually fetch it.
+  contents: write
+  packages: write
+
+jobs:
+  package-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Resolve version and registry
+        run: |
+          echo "VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          echo "OCI_REPO=oci://ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/charts" >> "$GITHUB_ENV"
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            helm registry login ghcr.io --username "${{ github.actor }}" --password-stdin
+
+      - name: Stamp every CompositionDefinition
+        run: |
+          set -euo pipefail
+          # A CompositionDefinition pins the version of the chart it registers, and it does NOT
+          # live next to Chart.yaml (here it is at the repo root while the chart is under
+          # ./chart), so the packaging loop below never saw it. Left by hand it fell behind:
+          # main registered 0.2.21 while 0.2.23 was the published release, so the platform kept
+          # installing a chart without the fixes that tag had just shipped. core-provider accepts
+          # a stale registration silently, so nothing surfaces it until someone instantiates.
+          found=0
+          while IFS= read -r -d '' cd; do
+            sed -i "s/CHART_VERSION/${VERSION}/g" "$cd"
+            echo "stamped ${cd} -> ${VERSION}"
+            found=$((found+1))
+          done < <(find . -type f -name compositiondefinition.yaml -not -path '*/charts/*' -print0)
+          echo "CompositionDefinitions stamped: ${found}"
+
+      - name: Package and push every chart
+        run: |
+          set -euo pipefail
+          find . -type f -name Chart.yaml -not -path '*/charts/*' -print0 | while IFS= read -r -d '' cf; do
+            dir=$(dirname "$cf")
+            name=$(awk '/^name:/{print $2; exit}' "$cf")
+            echo "::group::${name} (${dir})"
+            # Stamp the CHART_VERSION placeholder, and pin the package version to the tag either way.
+            sed -i "s/CHART_VERSION/${VERSION}/g" "$cf"
+            helm dependency update "$dir" 2>/dev/null || true
+            helm package "$dir" --version "${VERSION}" --destination .
+            helm push "${name}-${VERSION}.tgz" "${OCI_REPO}"
+            echo "Published ${OCI_REPO}/${name}:${VERSION}"
+            echo "::endgroup::"
+          done
+
+      - name: Publish the stamped CompositionDefinitions on the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Runs AFTER the charts are pushed, deliberately. The chart is the primary artifact;
+          # an asset problem must never prevent it from shipping. It did once: this step ran
+          # first, failed, and the whole packaging step was skipped, so that tag published
+          # nothing at all.
+          #
+          # Copies go into a staging dir because a root-level CD is already at
+          # ./compositiondefinition.yaml, and `cp` onto itself is an error, not a no-op.
+          stage="$(mktemp -d)"
+          assets=()
+          while IFS= read -r -d '' cd; do
+            d="$(dirname "$cd")"
+            if [ "$d" = "." ]; then out="compositiondefinition.yaml"; else out="compositiondefinition-$(basename "$d").yaml"; fi
+            cp "$cd" "${stage}/${out}"
+            assets+=("${stage}/${out}")
+          done < <(find . -type f -name compositiondefinition.yaml -not -path '*/charts/*' -print0)
+          if [ ${#assets[@]} -eq 0 ]; then
+            echo "no CompositionDefinition to publish"; exit 0
+          fi
+          gh release view "${VERSION}" >/dev/null 2>&1 \
+            || gh release create "${VERSION}" --title "${VERSION}" --notes "selfservice-krateo ${VERSION}. Apply the attached CompositionDefinition to register this version."
+          gh release upload "${VERSION}" "${assets[@]}" --clobber
+          echo "attached: ${assets[*]}"
