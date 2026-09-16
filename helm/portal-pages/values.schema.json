@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "portal-pages",
+  "description": "A set of Krateo Composable Portal pages shipped as its own chart.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "tiers": {
+      "type": "object",
+      "title": "Namespace tiers",
+      "description": "Which namespace each page tier is created in. Empty = the release namespace.",
+      "additionalProperties": false,
+      "properties": {
+        "common": {
+          "type": "string",
+          "title": "Common tier namespace",
+          "description": "Pages every authenticated user sees. Empty = the release namespace.",
+          "default": ""
+        },
+        "tenant": {
+          "type": "string",
+          "title": "Tenant tier namespace",
+          "description": "Pages a tenant persona sees. Empty = the release namespace.",
+          "default": ""
+        },
+        "admin": {
+          "type": "string",
+          "title": "Admin tier namespace",
+          "description": "Admin-only pages. Empty = the release namespace.",
+          "default": ""
+        }
+      }
+    }
+  }
+}

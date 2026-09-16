@@ -1,0 +1,37 @@
+apiVersion: v2
+
+# THE CHART NAME BECOMES THE API. core-provider derives the generated CRD's Kind by pascalizing
+# this (`portal-pages` -> `PortalPages`, plural `portalpages`), and the chart VERSION becomes the
+# served apiVersion (`1.2.0` -> `composition.krateo.io/v1-2-0`). So renaming the chart renames the
+# Kind people install, and every release mints a new GVK with its own controller Deployment —
+# which is why a page-set chart is versioned deliberately rather than bumped per page edit.
+#
+# Rename this (and the directory) to something that names the SECTION of the portal it carries,
+# the way `portal-agents` does. `portal-pages` is a placeholder, not a recommendation.
+name: portal-pages
+
+description: >-
+  A set of Krateo Composable Portal pages, shipped as its own chart. Pages declare their own
+  sidebar entry through `krateo.io/nav-*` annotations, so installing this chart adds them to the
+  portal without editing the portal chart.
+
+type: application
+
+# Substituted at release by the org-wide release-oci workflow from the git tag. Leave as-is:
+# `helm template` on this repo will refuse the placeholder, which is expected and is why the
+# README shows the --version flag for local rendering.
+version: CHART_VERSION
+appVersion: CHART_VERSION
+
+home: https://krateo.io
+icon: https://raw.githubusercontent.com/krateo-platformops/.github/main/brand/logo.svg
+keywords:
+  - krateo
+  - platformops
+  - portal
+  - pages
+  - blueprint
+  - composable
+annotations:
+  krateo.io/category: application
+  krateo.io/maturity: stable

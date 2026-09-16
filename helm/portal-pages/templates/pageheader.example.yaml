@@ -1,0 +1,14 @@
+{{/* The page's title bar. `resourcesRefs` is REQUIRED even though a PageHeader holds no
+     children — the CRD lists it beside widgetData in spec.required, and omitting it is rejected
+     at apply with "spec.resourcesRefs: Required value". */}}
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: example-header
+  namespace: {{ include "portal.tierNamespace" (dict "ctx" . "tier" "admin") }}
+spec:
+  resourcesRefs:
+    items: []
+  widgetData:
+    title: Example
+    subtitle: Replace this page with your own, and delete the example.

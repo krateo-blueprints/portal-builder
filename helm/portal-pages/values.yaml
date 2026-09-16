@@ -1,0 +1,15 @@
+# RBAC namespace tiers for the pages in this chart.
+#
+# Each page root is placed in one tier; the portal's sidebar resolves visibility AS THE USER, so a
+# page whose namespace the user cannot read simply does not appear. Empty string = the release
+# namespace, which is the default single-namespace layout with no tiering.
+#
+# Set these to the SAME namespaces the portal chart uses, or pages land somewhere the portal's own
+# RBAC does not cover.
+tiers:
+  # Pages every authenticated user sees.
+  common: ""
+  # Pages a tenant persona sees.
+  tenant: ""
+  # Admin-only pages.
+  admin: ""

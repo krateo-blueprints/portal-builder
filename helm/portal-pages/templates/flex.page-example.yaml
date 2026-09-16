@@ -1,0 +1,60 @@
+{{/*
+  The page ROOT — one per page, and the only object that needs nav annotations.
+
+  THE NAME IS THE ROUTE CONTRACT. It must be `page-<slug>` exactly: the portal resolves a nav
+  entry's content as `flexes/page-<slug>` when the entry carries no explicit ref, and a menu
+  assembled from a cluster listing has no refs to offer. A root named anything else is
+  unreachable — which is why `dashboard-flex` and `marketplace-flex` were renamed in the portal
+  chart rather than special-cased.
+
+  THE ANNOTATIONS ARE THE SIDEBAR. The portal's Menu lists page roots across the cluster and
+  builds its entries from these, so installing this chart adds the page to the nav and
+  uninstalling removes it — with no edit to the portal chart and no values flag to keep in sync.
+*/}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-example
+  namespace: {{ include "portal.tierNamespace" (dict "ctx" . "tier" "admin") }}
+  annotations:
+    "krateo.io/verbose": "true"
+
+    {{/* The route. Absent = this is not a page, and the nav ignores it entirely. */}}
+    "krateo.io/nav-path": "/example"
+
+    {{/* The sidebar entry. OMIT for a route-only page — a detail or create view that must be
+         deep-linkable but should not appear in the sidebar (e.g. /example/{namespace}/{name}). */}}
+    "krateo.io/nav-label": "Example"
+    "krateo.io/nav-icon": "fa-file"
+
+    {{/* Sort key across the WHOLE sidebar, not just this chart — so pick a band that does not
+         collide with the portal's own (1-40 is taken; authored pages conventionally sit at 900+). */}}
+    "krateo.io/nav-order": "950"
+
+    {{/* The section. Dividers are synthesised where the group changes, so a page joins an
+         existing section by naming it — no renumbering, no divider to place by hand. */}}
+    "krateo.io/nav-group": "Administration"
+
+    {{/* Extra ROUTES that resolve to this same page and get NO sidebar entry of their own.
+         Comma-separated. A labelled alias would render this page in the sidebar twice. */}}
+    {{/* "krateo.io/nav-alias": "/example/legacy" */}}
+spec:
+  widgetData:
+    {{/* REQUIRED by the CRD, and it must list the PLURAL of every kind placed below — a container
+         that does not declare a child's plural renders nothing, with no error anywhere. */}}
+    allowedResources:
+      - pageheaders
+    vertical: true
+    gap: middle
+    items:
+      - resourceRefId: example-header
+  resourcesRefs:
+    items:
+      - id: example-header
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: example-header
+        {{/* REQUIRED. snowplow's resolver has no defaulting — an entry without a namespace
+             resolves against the empty one, and the child silently never renders. */}}
+        namespace: {{ include "portal.tierNamespace" (dict "ctx" . "tier" "admin") }}
+        resource: pageheaders
+        verb: GET
