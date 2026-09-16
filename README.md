@@ -1,4 +1,4 @@
-# portal-builder-template
+# portal-builder
 
 A starting point for a **Krateo Composable Portal page set** — one or more portal pages shipped as
 their own Helm chart, installed like any other Krateo composition.
