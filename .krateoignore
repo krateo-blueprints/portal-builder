@@ -1,0 +1,18 @@
+# What NOT to copy when this repository SEEDS another one.
+#
+# `builder-publish` renders a git-provider `Repo` (fromRepo -> toRepo) when a publish sets
+# `source.url`, and git-provider reads this file from the source root using .gitignore syntax. The
+# Portal Builder uses that to give a newly created page-set repository the scaffolding it cannot
+# generate for itself — the release workflow and a CompositionDefinition — without also giving it
+# the parts that only make sense HERE.
+#
+# GitHub's own "Use this template" does not read this file, so the hand-authored path is unaffected
+# and still gets the complete example.
+
+# The example chart. A seeded repo receives the COMPOSED chart; copying this one in beside it means
+# the release workflow discovers two Chart.yaml files and publishes both, and the example page turns
+# up in the sidebar of whoever installs the result.
+helm/
+
+# This README describes the template, not a page set made from it.
+README.md
