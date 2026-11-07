@@ -45,6 +45,7 @@ choice for a genuinely separate section.
 | `templates/flex.page-example.yaml` | your page root. The name must be `page-<slug>` exactly |
 | `templates/pageheader.example.yaml` | your page header, or delete it |
 | `values.schema.json` | **is** the generated CRD's `spec` — no schema, no CRD, not installable |
+| `Chart.yaml` `sources:` | your repository's URL. In krateo-blueprints the release refuses a chart that doesn't list the repository building it |
 | `compositiondefinition.yaml` | the `name`, `namespace` and chart `url` |
 
 Leave `version: CHART_VERSION` alone: the release workflow substitutes it from the git tag.
