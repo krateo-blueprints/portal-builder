@@ -5,6 +5,16 @@
 # Charts opt into versioning with the CHART_VERSION placeholder in Chart.yaml, which the git tag
 # replaces at publish time. Pushing tag "0.1.0" publishes each chart <name> as:
 #   oci://ghcr.io/<owner>/charts/<name>:0.1.0
+#
+# In the krateo-blueprints organisation, the same bytes are then published to the helm index by the
+# organisation's one publisher (krateo-blueprints/charts PUBLISHING.md). A page set has
+# values.schema.json, a CompositionDefinition and `krateo.io/kind: page-set` in Chart.yaml, so it
+# goes to the `pages` channel: published and installable, but not listed on the Marketplace.
+#
+# This workflow is copied into the repositories made from this template, and those can belong to
+# any owner. Outside krateo-blueprints there is no CHARTS_PUBLISH_TOKEN and no index to publish to,
+# so everything index-related runs only when the owner is krateo-blueprints (PUBLISHING.md "Scope").
+# Elsewhere the release does exactly what it did before: package, push, attach the CD.
 name: release-tag
 
 on:
@@ -25,6 +35,31 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # The Marketplace's index installs what krateo-blueprints/charts lists, not what GHCR holds,
+      # and the publish-index job below needs this secret to get there. Refuse here, before
+      # anything is pushed, so a missing token fails the release instead of leaving GHCR and the
+      # index at different versions (PUBLISHING.md rules 1 and 7).
+      - name: The index token must be present
+        if: github.repository_owner == 'krateo-blueprints'
+        env:
+          CHARTS_PUBLISH_TOKEN: ${{ secrets.CHARTS_PUBLISH_TOKEN }}
+        run: |
+          if [ -z "${CHARTS_PUBLISH_TOKEN}" ]; then
+            echo "::error::secret CHARTS_PUBLISH_TOKEN is not set, so this release could not reach the"
+            echo "::error::helm index and GHCR would hold a version the index never lists."
+            exit 1
+          fi
+          # A token with whitespace or a control character (usually a trailing newline from piping
+          # into `gh secret set`) passes the API, which trims it, and then breaks git in the
+          # publisher, after GHCR already holds this version (PUBLISHING.md rule 7). Refuse it
+          # here. The token itself is never printed.
+          case "${CHARTS_PUBLISH_TOKEN}" in
+            *[[:space:]]*|*[[:cntrl:]]*)
+              echo "::error::secret CHARTS_PUBLISH_TOKEN contains whitespace or a control character, usually a trailing newline."
+              echo "::error::Re-save it by pasting the token at the prompt of 'gh secret set CHARTS_PUBLISH_TOKEN --org krateo-blueprints --visibility all' (not piped from echo)."
+              exit 1 ;;
+          esac
 
       - name: Install Helm
         uses: azure/setup-helm@v4
@@ -57,8 +92,102 @@ jobs:
           echo "CompositionDefinitions stamped: ${found}"
 
       - name: Package and push every chart
+        env:
+          PUBLISH_INDEX: ${{ github.repository_owner == 'krateo-blueprints' }}
         run: |
           set -euo pipefail
+          if [ "$PUBLISH_INDEX" = true ]; then
+            # Refuse here, before GHCR holds the version, every archive the Marketplace index's publisher
+            # would refuse after it (PUBLISHING.md rules 2 and 3): the same checks, on the same archive.
+            # helm package exits 0 whether or not a file made it into the chart, so the archive is what is
+            # checked. Listings are read once and matched with here-strings: `tar | grep -q` under
+            # pipefail fails on SIGPIPE when grep matches early.
+            gate() {
+              local name="$1" tgz="$2" channel="$3" members chart_yaml chart_ver src src_lc listed want kind f
+              local cd_yaml cd_url cd_ver
+              members="$(tar tzf "$tgz")"
+              chart_yaml="$(tar -xzOf "$tgz" "${name}/Chart.yaml")"
+              chart_ver="$(yq -r '.version' <<< "$chart_yaml")"
+              src="https://github.com/${GITHUB_REPOSITORY}"
+              # Owner and repository names are case-insensitive on GitHub, so compare lower-cased and
+              # ignore a trailing slash, exactly as the publisher does (publish-chart.yaml 1.0.3).
+              src_lc="$(tr '[:upper:]' '[:lower:]' <<< "$src")"
+              listed="$(yq -r '.sources // [] | .[]' <<< "$chart_yaml" | tr '[:upper:]' '[:lower:]' | sed 's#/*$##')"
+              if ! grep -qxF "$src_lc" <<< "$listed"; then
+                echo "::error::${name}: Chart.yaml sources: must list ${src}, the repository that builds it"
+                return 1
+              fi
+              if [ "$channel" != operators ]; then
+                for f in values.schema.json compositiondefinition.yaml; do
+                  if ! grep -qxF "${name}/${f}" <<< "$members"; then
+                    echo "::error::$(basename "$tgz") lacks ${name}/${f}"
+                    return 1
+                  fi
+                done
+              fi
+              want=operators
+              if grep -qxF "${name}/values.schema.json" <<< "$members" \
+                 && grep -qxF "${name}/compositiondefinition.yaml" <<< "$members"; then
+                kind="$(yq -r '.annotations."krateo.io/kind" // ""' <<< "$chart_yaml")"
+                if [ "$kind" = page-set ]; then want=pages; else want=blueprints; fi
+              fi
+              if [ "$want" != "$channel" ]; then
+                echo "::error::${name}: its archive belongs in ${want}, not ${channel} (PUBLISHING.md rule 2)"
+                return 1
+              fi
+              if [ "$channel" = operators ]; then
+                return 0
+              fi
+              cd_yaml="$(tar -xzOf "$tgz" "${name}/compositiondefinition.yaml")"
+              cd_url="$(yq -r 'select(.kind == "CompositionDefinition") | .spec.chart.url' <<< "$cd_yaml")"
+              cd_ver="$(yq -r 'select(.kind == "CompositionDefinition") | .spec.chart.version' <<< "$cd_yaml")"
+              if [ "$cd_url" != "oci://ghcr.io/krateo-blueprints/charts/${name}" ]; then
+                echo "::error::${name}: its CompositionDefinition installs '${cd_url}', not oci://ghcr.io/krateo-blueprints/charts/${name}"
+                return 1
+              fi
+              if [ "$cd_ver" != "$chart_ver" ]; then
+                echo "::error::${name} ${chart_ver}: its CompositionDefinition installs version '${cd_ver}' (PUBLISHING.md rule 4)"
+                return 1
+              fi
+              case "$(yq -r '.icon // ""' <<< "$chart_yaml")" in
+                https://*) : ;;
+                *) echo "::error::${name}: Chart.yaml icon must be an absolute https URL"; return 1 ;;
+              esac
+              if [ "$(yq -r '(.keywords // []) | length' <<< "$chart_yaml")" -eq 0 ]; then
+                echo "::error::${name}: Chart.yaml needs keywords, the Marketplace's tags"
+                return 1
+              fi
+            }
+
+            # The page set is the chart the repo-root CompositionDefinition installs. Every chart
+            # goes to the index as well as GHCR (PUBLISHING.md rule 1), so in this organisation a
+            # repository releases exactly that one chart, and anything else is refused before
+            # anything is pushed rather than pushed alone.
+            cd_url="$(yq -r 'select(.kind == "CompositionDefinition") | .spec.chart.url' compositiondefinition.yaml)"
+            pageset="${cd_url##*/}"
+            pageset_dir=""
+            while IFS= read -r -d '' cf; do
+              if [ "$(awk '/^name:/{print $2; exit}' "$cf")" = "$pageset" ]; then
+                pageset_dir="$(dirname "$cf")"
+              else
+                echo "::error::${cf} is not the chart compositiondefinition.yaml installs (${pageset}), and has no index channel here"
+                exit 1
+              fi
+            done < <(find . -type f -name Chart.yaml -not -path '*/charts/*' -print0)
+            if [ -z "$pageset_dir" ]; then
+              echo "::error::compositiondefinition.yaml installs '${cd_url}', and no chart here is named '${pageset}'"
+              exit 1
+            fi
+            # A page-set archive must describe itself (PUBLISHING.md rule 3): ship the stamped
+            # CompositionDefinition at the chart root, where helm packages it but never renders it.
+            # A repository whose chart IS the root already has it there.
+            if [ "$pageset_dir" != "." ]; then
+              cp ./compositiondefinition.yaml "${pageset_dir}/compositiondefinition.yaml"
+              # The release-asset step below attaches the root file, not this copy.
+              echo "CD_COPY=${pageset_dir}/compositiondefinition.yaml" >> "$GITHUB_ENV"
+            fi
+            mkdir -p charts-dist
+          fi
           find . -type f -name Chart.yaml -not -path '*/charts/*' -print0 | while IFS= read -r -d '' cf; do
             dir=$(dirname "$cf")
             name=$(awk '/^name:/{print $2; exit}' "$cf")
@@ -67,10 +196,25 @@ jobs:
             sed -i "s/CHART_VERSION/${VERSION}/g" "$cf"
             helm dependency update "$dir" 2>/dev/null || true
             helm package "$dir" --version "${VERSION}" --destination .
+            if [ "$PUBLISH_INDEX" = true ]; then
+              gate "$name" "${name}-${VERSION}.tgz" pages || exit 1
+            fi
             helm push "${name}-${VERSION}.tgz" "${OCI_REPO}"
             echo "Published ${OCI_REPO}/${name}:${VERSION}"
+            if [ "$PUBLISH_INDEX" = true ]; then
+              # The same bytes that went to GHCR, for the index.
+              cp "${name}-${VERSION}.tgz" charts-dist/
+            fi
             echo "::endgroup::"
           done
+
+      - name: Hand the page-set tarball to the index job
+        if: github.repository_owner == 'krateo-blueprints'
+        uses: actions/upload-artifact@v4
+        with:
+          name: charts-dist
+          path: charts-dist/*.tgz
+          if-no-files-found: error
 
       - name: Publish the stamped CompositionDefinitions on the release
         env:
@@ -91,7 +235,8 @@ jobs:
             if [ "$d" = "." ]; then out="compositiondefinition.yaml"; else out="compositiondefinition-$(basename "$d").yaml"; fi
             cp "$cd" "${stage}/${out}"
             assets+=("${stage}/${out}")
-          done < <(find . -type f -name compositiondefinition.yaml -not -path '*/charts/*' -print0)
+          done < <(find . -type f -name compositiondefinition.yaml -not -path '*/charts/*' \
+                        -not -path "${CD_COPY:-./.none}" -print0)
           if [ ${#assets[@]} -eq 0 ]; then
             echo "no CompositionDefinition to publish"; exit 0
           fi
@@ -99,3 +244,18 @@ jobs:
             || gh release create "${VERSION}" --title "${VERSION}" --notes "selfservice-krateo ${VERSION}. Apply the attached CompositionDefinition to register this version."
           gh release upload "${VERSION}" "${assets[@]}" --clobber
           echo "attached: ${assets[*]}"
+
+  # In krateo-blueprints, the page set is published to https://krateo-blueprints.github.io/charts/pages/
+  # by the organisation's one publisher (krateo-blueprints/charts PUBLISHING.md). It also reads the
+  # served index and installs the chart anonymously before it succeeds.
+  publish-index:
+    needs: package-and-push
+    if: github.repository_owner == 'krateo-blueprints'
+    # Pinned by full commit SHA (PUBLISHING.md rule 9); Dependabot proposes upgrades.
+    uses: krateo-blueprints/charts/.github/workflows/publish-chart.yaml@ae5e19976a126abf5fb99c14c78180885ef3c97b # 1.0.3
+    with:
+      source_repo: ${{ github.repository }}
+      git_tag: ${{ github.ref_name }}
+      channel: pages
+    secrets:
+      PUBLISH_TOKEN: ${{ secrets.CHARTS_PUBLISH_TOKEN }}
